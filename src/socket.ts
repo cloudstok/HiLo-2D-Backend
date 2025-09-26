@@ -2,7 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { getUserDataFromSource } from './module/players/player-event';
 import { eventRouter } from './routers/event-router';
 import { setCache, deleteCache } from './utils/redis-connection';
-import { getMatchHistory } from './module/bets/bets-session';
+import { messageRouter } from './routers/message-router';
 
 
 export const initSocket = (io: Server): void => {
@@ -36,8 +36,7 @@ export const initSocket = (io: Server): void => {
     
 
     await setCache(`PL:${socket.id}`, JSON.stringify({ ...userData, socketId: socket.id }), 3600);
-
-    await getMatchHistory(socket, userData.userId, userData.operatorId);
+    messageRouter(io, socket);
     eventRouter(io, socket);
 
     socket.on('error', (error: Error) => {

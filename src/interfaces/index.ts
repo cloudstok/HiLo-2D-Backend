@@ -20,12 +20,16 @@ export interface FinalUserData extends RawUserData {
     id: string;
     game_id: string;
     token: string;
-    image: number;
+    card: number;
 };
 
 export interface BetReqData {
-    roomId: string;
+    roomId: number;
+    user_id : string;
+    operator_Id : string;
+    totalAmount : number;
     userBets: UserBet[]
+    type : string;
 };
 
 
@@ -41,23 +45,19 @@ export interface UserBet {
 }
 
 export interface Settlement {
-    bet_id: number;               
+    Settlement_id : number;               
     user_id: string;
-    operator_id?: string | null;
+    operator_id: string;
     betAmount: number;
     userBets: UserBet[];
     roomId: number;            
     result: string;
     winAmount: number;
-    winning_number: number;
-    max_mult?: number | string;
-    lobby_id?: string;          
+    winning_card: number;       
     txn_id?: string;
 }
 
 export interface BetsObject {
-    bet_id: string;          
-    lobby_id: string;
     user_id: string;
     operatorId: string;
     roomId: number;
@@ -66,7 +66,7 @@ export interface BetsObject {
     token: string;
     socket_id: string;
     game_id: string;
-    image: number;
+    card: number; // high low...
     ip?: string;
     txn_id?: string;
 }
@@ -122,6 +122,7 @@ export interface BetsData {
     game_id?: string;
     user_id: string;
     bet_id?: string;
+    room_id?: number;
     txn_id?: string;
     ip?: string;
 };

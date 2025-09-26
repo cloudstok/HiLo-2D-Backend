@@ -26,7 +26,7 @@ export const getUserDataFromSource = async (
       const userId = encodeURIComponent(userData.user_id);
       const { operatorId } = userData;
       const id = `${operatorId}:${userId}`;
-      const image = getImageValue(id);
+      const card = getImageValue(id);
 
       const finalData: FinalUserData = {
         ...userData,
@@ -34,7 +34,7 @@ export const getUserDataFromSource = async (
         id,
         game_id,
         token,
-        image,
+        card,
       };
 
       return finalData;
