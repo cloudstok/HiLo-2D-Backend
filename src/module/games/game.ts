@@ -13,8 +13,8 @@ interface Card {
 
 // Bet type mapping
 const betTypeMap: Record<number, string> = {
-  1: "High",                 // value >= 8
-  2: "Low",                  // value <= 7
+  1: "High",                 // value high card order 2 3 4 5 6 7 8 9 10 J Q K A
+  2: "Low",                  // value low order A K Q J 10 9 8 7 6 5 4 3 2 
   3: "Red Heart",            // suit = H
   4: "Red Diamond",          // suit = D
   5: "Black Club",           // suit = C
@@ -25,7 +25,7 @@ const betTypeMap: Record<number, string> = {
 
 // Multiplier mapping
 const multiplierMap: Record<number, number> = {
-  1: 1.27,
+  1: 1.27, 
   2: 1.27,
   3: 3.92,
   4: 3.92,

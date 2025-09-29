@@ -8,25 +8,77 @@ import { read, write } from '../../utils/db-connection';
 import { Server as IOServer, Server, Socket } from 'socket.io';
 import { addSettleBet } from './bets-db';
 import { roomPlayerCount } from '../rooms/room-events';
+import { logEventAndEmitResponse, eventEmitter } from '../../utils/helper-function';
 
-const logger = createLogger("");
+const logger = createLogger('Bets', 'jsonl');
+const settlBetLogger = createLogger('Settlement', 'jsonl');
+const erroredLogger = createLogger('ErrorData', 'plain');
 
-export const joinRoomHandler = async (io: IOServer, socket: Socket, roomId: String) => {
+export const joinRoomHandler = async (io: IOServer, socket: Socket, roomId: string) => {
   try {
+        const stringifiedPlayerDetails = await getCache(`PL:${socket.id}`);
 
-      } catch (err) {
-    logger.error('joinRoomHandler error');
-    socket.emit('betError', { message: 'Failed to join room' });
+        if (!stringifiedPlayerDetails) {
+            logEventAndEmitResponse({ roomId }, 'Player details not found', 'jnRm');
+            eventEmitter(socket, 'betError', { message: 'Player details not found' });
+            return;
+        };
+
+        const playerDetails: FinalUserData = JSON.parse(stringifiedPlayerDetails);
+        const { user_id, operatorId } = playerDetails;
+        const isPlayerExistInRoom = await getCache(`rm-${operatorId}:${user_id}`);
+
+        if (isPlayerExistInRoom) {
+            logEventAndEmitResponse({ roomId, ...playerDetails }, 'Player already exist in another room', 'jnRm');
+            eventEmitter(socket, 'betError', { message: 'Player already exist in another room' });
+            return;
+        };
+
+        if (roomPlayerCount[Number(roomId)]) roomPlayerCount[Number(roomId)]++;
+        socket.join(roomId);
+        await setCache(`rm-${operatorId}:${user_id}`, roomId);
+        eventEmitter(socket, 'jnRm', { message: 'Room joined successfully', roomId });
+        eventEmitter(socket, 'rmSts', {
+            // what are the things you want emit
+        });
+        return;
+    } catch (err) {
+        logEventAndEmitResponse({ roomId }, 'Something went wrong, unable to join room', 'jnRm');
+        eventEmitter(socket, 'betError', { message: 'Something went wrong, unable to join room' });
+        socket.disconnect(true);
+        return;
   }
 };
 
 export const exitRoomHandler = async (io: IOServer, socket: Socket, roomId: string) => {
   try {
 
-     } catch (err) {
-    logger.error('exitRoomHandler error');
-    socket.emit('betError', { message: 'Failed to exit room' });
-  }
+        const stringifiedPlayerDetails = await getCache(`PL:${socket.id}`);
+        if (!stringifiedPlayerDetails) {
+            logEventAndEmitResponse({ roomId }, 'Player details not found', 'exRm');
+            eventEmitter(socket, 'betError', { message: 'Player details not found' });
+            return;
+        };
+        const playerDetails: FinalUserData = JSON.parse(stringifiedPlayerDetails);
+        const { user_id, operatorId } = playerDetails;
+        const isPlayerExistInRoom = await getCache(`rm-${operatorId}:${user_id}`);
+        if (!isPlayerExistInRoom) {
+            logEventAndEmitResponse({ roomId, ...playerDetails }, 'Player does not belong to room', 'exRm');
+            eventEmitter(socket, 'betError', { message: 'Player does not belong to room' });
+            return;
+        };
+        socket.leave(roomId);
+        if (roomPlayerCount[Number(roomId)]) roomPlayerCount[Number(roomId)]--
+        io.emit('message', { eventName: 'plCnt', data: roomPlayerCount });
+        await deleteCache(`rm-${operatorId}:${user_id}`);
+        eventEmitter(socket, 'lvRm', { message: 'Room left successfully', roomId });
+        return;
+    } catch (err) {
+        logEventAndEmitResponse({ roomId }, 'Something went wrong, unable to leave room', 'exRm');
+        eventEmitter(socket, 'betError', { message: 'Something went wrong, unable to leave room' });
+        socket.disconnect(true);
+        return;
+    }
 };
 
 export const disConnect = async (io: Server, socket: Socket) => {
@@ -51,3 +103,28 @@ export const disConnect = async (io: Server, socket: Socket) => {
     socket.emit('betError', { message: 'Unable to disconnect cleanly' });
   }
 };
+
+
+export const roomStats = async (io: Server, socket: Socket) => {
+    try {
+        const stringifiedPlayerDetails = await getCache(`PL:${socket.id}`);
+        if (!stringifiedPlayerDetails) {
+            eventEmitter(socket, 'betError', { message: 'Invalid Player details' });
+            return;
+        };
+        const playerDetails: PlayerDetails = JSON.parse(stringifiedPlayerDetails);
+        const { user_id, operatorId } = playerDetails;
+        const existingRoom = await getCache(`rm-${operatorId}:${user_id}`);
+        if (!existingRoom) {
+            eventEmitter(socket, 'betError', { message: 'user deos not exist in any room' });
+            return;
+        };
+        eventEmitter(socket, 'rmSts', {
+            //what you want to emit like history card , card probability
+        });
+        return;
+    } catch (err) {
+        eventEmitter(socket, 'betError', { message: 'Something went wrong, unable to fetch room stats' });
+        return;
+    }
+}

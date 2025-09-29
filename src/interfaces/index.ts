@@ -107,12 +107,17 @@ export interface AppConfig {
 };
 
 export type WebhookKey = 'CREDIT' | 'DEBIT';
-
+export type BetEvent = 'bet' | 'jnRm' | 'exRm';
 
 export interface PlayerDetails {
-    game_id: string;
+    id: string;
+    user_id: string;
     operatorId: string;
-    token: string
+    token: string;
+    game_id: string;
+    balance: number | string;
+    socketId: string;
+    card: number;
 };
 
 export interface BetsData {

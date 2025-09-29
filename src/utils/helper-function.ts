@@ -1,19 +1,18 @@
-import { BetResult } from '../interfaces';
+import { BetResult , BetEvent } from '../interfaces';
 import { appConfig } from './app-config';
 import { multiplierMap } from './common-function';
 import { createLogger } from './logger';
 import { Socket } from 'socket.io';
-import { roomPlayerCount } from '../module/rooms/room-events';
+import { roomPlayerCount, ROOMS } from '../module/rooms/room-events';
 
 const failedBetLogger = createLogger('failedBets', 'jsonl');
 const failedJoinLogger = createLogger('failedJoinRoom', 'jsonl');
 const failedExitLogger = createLogger('failedExitRoom', 'jsonl');
 
 export const logEventAndEmitResponse = (
-    socket: Socket,
-    req: any,
+    req: unknown,
     res: string,
-    event: string
+    event: BetEvent   
 ): void => {
     const logData = JSON.stringify({ req, res });
     if (event === 'jnRm') {
@@ -22,8 +21,15 @@ export const logEventAndEmitResponse = (
     if (event == 'exRm') {
         failedExitLogger.error(logData);
     };
-    socket.emit('betError', { message: res, status: false });
 };
+
+export const eventEmitter = (
+    socket: Socket | undefined,
+    eventName: string,
+    data: any
+): void => {
+    if (socket) socket.emit('message', { eventName, data });
+}
 
 
 export const getUserIP = (socket: any): string => {
@@ -45,5 +51,8 @@ function getResult(): number[] {
 }
 
 export const getRooms = () => {
-    return ;
+     const roomData = ROOMS;
+    roomData.map(room => {
+        return room;
+    });
 };

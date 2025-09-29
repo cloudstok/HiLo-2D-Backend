@@ -3,10 +3,11 @@ import { getUserDataFromSource } from './module/players/player-event';
 import { eventRouter } from './routers/event-router';
 import { setCache, deleteCache } from './utils/redis-connection';
 import { messageRouter } from './routers/message-router';
+import { initGame } from './module/rooms/room-events';
 
 
 export const initSocket = (io: Server): void => {
-
+  initGame(io);
   io.on('connection', async (socket: Socket) => {
 
     const { token, game_id } = socket.handshake.query as { token?: string; game_id?: string };
