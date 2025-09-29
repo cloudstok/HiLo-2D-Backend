@@ -31,7 +31,7 @@ export const initSocket = (io: Server): void => {
       {
         user_id: userData.userId,
         operator_id: userData.operatorId,
-        balance: userData.balance,
+        balance: userData.balance && typeof userData.balance === 'number' ? userData.balance : Number(userData.balance) || 0,
       },
     );
     

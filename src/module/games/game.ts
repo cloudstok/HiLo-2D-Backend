@@ -1,24 +1,24 @@
-import { GameResult } from "../../interfaces";
+import { GameResult, } from "../../interfaces";
 
 const SUITS = ['S', 'H', 'D', 'C'] as const; // Spade, Heart, Diamond, Club
-const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'] as const;
+const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14'] as const;
 
 type Suit = typeof SUITS[number];
 type Rank = typeof RANKS[number];
 
-interface Card {
+export interface Card {
   rank: Rank;
   suit: Suit;
 }
 
 // Bet type mapping
 const betTypeMap: Record<number, string> = {
-  1: "High",                 // value high card order 2 3 4 5 6 7 8 9 10 J Q K A
-  2: "Low",                  // value low order A K Q J 10 9 8 7 6 5 4 3 2 
-  3: "Red Heart",            // suit = H
-  4: "Red Diamond",          // suit = D
-  5: "Black Club",           // suit = C
-  6: "Black Spade",          // suit = S
+  1: "High",                 
+  2: "Low",                  
+  3: "Heart",            // suit = H
+  4: "Diamond",          // suit = D
+  5: "Club",           // suit = C
+  6: "Spade",          // suit = S
   7: "Red (Heart or Diamond)", // suit = H or D
   8: "Black (Club or Spade)"   // suit = C or S
 };
@@ -42,12 +42,55 @@ export function drawCard(): Card {
   return { rank, suit };
 }
 
-// Convert rank to numeric value for High/Low evaluation
-function rankValue(rank: Rank): number {
-  if (rank === 'A') return 14;
-  if (rank === 'K') return 13;
-  if (rank === 'Q') return 12;
-  if (rank === 'J') return 11;
-  return parseInt(rank, 10);
+
+export const calculateWinnings = async(category:string, lastestCard:Card, secondLatestCard:Card): Promise<{ status: "win" | "loss"; mult: number }> => {
+  const lastCard:Card = lastestCard
+  const secondLastCard:Card = secondLatestCard
+  let status: "win" | "loss" = "loss"
+  let mult = 0;
+  switch (category) {
+    case "High":
+      if (lastCard.rank > secondLastCard.rank) {
+        status = "win";
+        mult = 2;
+      }
+      break;
+
+    case "Low":
+      if (lastCard.rank < secondLastCard.rank) {
+        status = "win";
+        mult = 2;
+      }
+      break;
+
+    case "Red":
+      if (lastCard.suit === "H" || lastCard.suit === "D") {
+        status = "win";
+        mult = 1.5;
+      }
+      break;
+
+    case "Black":
+      if (lastCard.suit === "C" || lastCard.suit === "S") {
+        status = "win";
+        mult = 1.5;
+      }
+      break;
+
+    case "SameSuit":
+      if (lastCard.suit === secondLastCard.suit) {
+        status = "win";
+        mult = 3;
+      }
+      break;
+
+    default:
+      status = "loss";
+      mult = 0;
+  }
+
+  return { status, mult };
+
+  
 }
 

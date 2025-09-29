@@ -42,14 +42,6 @@ export const getUserIP = (socket: any): string => {
 };
 
 
-function getResult(): number[] {
-    const result: number[] = [];
-    for (let i = 0; i < 2; i++) {
-        result.push(Math.floor(Math.random() * 6) + 1);
-    }
-    return result;
-}
-
 export const getRooms = () => {
      const roomData = ROOMS;
     roomData.map(room => {

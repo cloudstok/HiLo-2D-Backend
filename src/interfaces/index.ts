@@ -15,6 +15,16 @@ export interface RawUserData {
     [key: string]: any;
 };
 
+export interface BetObject {
+    roundId: string;
+    token: string;
+    socket_id: string;
+    game_id: string;
+    bet_amount?: number;
+    debit_txn_id?: string;
+    ip?: string
+};
+
 export interface FinalUserData extends RawUserData {
     user_id: string;
     id: string;
@@ -25,35 +35,31 @@ export interface FinalUserData extends RawUserData {
 
 export interface BetReqData {
     roomId: number;
-    user_id : string;
-    operator_Id : string;
-    totalAmount : number;
-    userBets: UserBet[]
-    type : string;
+    btAmt: number;
+    category: string;
 };
-
-
-export interface SingleBetData {
-    betAmount: number;
-    card: number;
-};
-
 
 export interface UserBet {
     betAmount: number;
     card: number;
 }
 
+export interface PlayerDetails {
+    game_id: string;
+    operatorId: string;
+    token: string;
+};
+
 export interface Settlement {
-    Settlement_id : number;               
+    Settlement_id: number;
     user_id: string;
     operator_id: string;
     betAmount: number;
     userBets: UserBet[];
-    roomId: number;            
+    roomId: number;
     result: string;
     winAmount: number;
-    winning_card: number;       
+    winning_card: number;
     txn_id?: string;
 }
 
@@ -110,14 +116,9 @@ export type WebhookKey = 'CREDIT' | 'DEBIT';
 export type BetEvent = 'bet' | 'jnRm' | 'exRm';
 
 export interface PlayerDetails {
-    id: string;
-    user_id: string;
     operatorId: string;
     token: string;
     game_id: string;
-    balance: number | string;
-    socketId: string;
-    card: number;
 };
 
 export interface BetsData {
@@ -153,8 +154,8 @@ export interface WebhookData {
 export interface Room {
     room_id: number;
     room_name: string;
-    min_bet: number; 
-    max_bet: number; 
+    min_bet: number;
+    max_bet: number;
     created_at?: Date;
 }
 
