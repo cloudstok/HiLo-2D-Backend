@@ -218,7 +218,7 @@ export const cashOut = async (socket: Socket, cashData: cashOutReqData) => {
     }
 
     const playerDetails: FinalUserData = JSON.parse(playerDetailsStr);
-    const { user_id, operatorId, token, game_id } = playerDetails;
+    const { user_id, operatorId, token, game_id, balance } = playerDetails;
     const prevCache = await getCache(`CA:${user_id}`);
     if (!prevCache) {
       socket.emit("bet_error", "No winnings available for cashout");
@@ -272,17 +272,13 @@ export const cashOut = async (socket: Socket, cashData: cashOutReqData) => {
       winAmount: settlement.winAmount,
       win_count,
       balance: playerDetails.balance,
-      txn_id: creditRes.txn_id,
     };
 
-    cashoutLogger.info(
-      JSON.stringify({
-        socketId: socket.id,
-        user_id : user_id,
-        playerDetails,
-        winData,
-      })
-    );
+    socket.emit('info', {
+      user_id,
+      operator_id: operatorId,
+      balance: playerDetails.balance
+    });
 
     socket.emit("cash_out_complete", winData);
   } catch (err) {
