@@ -46,6 +46,8 @@ export function drawCard(): Card {
 export const calculateWinnings = async(category:string, lastestCard:Card, secondLatestCard:Card): Promise<{ status: "win" | "loss"; mult: number }> => {
   const lastCard:Card = lastestCard
   const secondLastCard:Card = secondLatestCard
+  console.log(lastCard, secondLastCard);
+  
   let status: "win" | "loss" = "loss"
   let mult = 0;
   switch (category) {

@@ -7,7 +7,7 @@ import { BetResult, BetsData, Settlement, AccountsResult, BetReqData, BetsObject
 import { read, write } from '../../utils/db-connection';
 import { Server as IOServer, Server, Socket } from 'socket.io';
 import { addSettleBet } from './bets-db';
-import { roomPlayerCount } from '../rooms/room-events';
+import { roomPlayerCount, roomWiseHistory } from '../rooms/room-events';
 import { logEventAndEmitResponse, eventEmitter } from '../../utils/helper-function';
 import { calculateWinnings, drawCard } from '../games/game';
 
@@ -15,13 +15,22 @@ const logger = createLogger('Bets', 'jsonl');
 const settlBetLogger = createLogger('Settlement', 'jsonl');
 const erroredLogger = createLogger('ErrorData', 'plain');
 
+const cards:any[] = [];
+export function emitInitialCards() {
+  const count = 8
+  for (let i = 0; i < count; i++) {
+    const card = drawCard();
+    cards.push(card);
+  }
+}
+
 export const joinRoomHandler = async (io: IOServer, socket: Socket, roomId: string) => {
   try {
         const stringifiedPlayerDetails = await getCache(`PL:${socket.id}`);
 
         if (!stringifiedPlayerDetails) {
             logEventAndEmitResponse({ roomId }, 'Player details not found', 'jnRm');
-            eventEmitter(socket, 'betError', { message: 'Player details not found' });
+            eventEmitter(socket, 'bet_error', { message: 'Player details not found' });
             return;
         };
 
@@ -31,7 +40,7 @@ export const joinRoomHandler = async (io: IOServer, socket: Socket, roomId: stri
 
         if (isPlayerExistInRoom) {
             logEventAndEmitResponse({ roomId, ...playerDetails }, 'Player already exist in another room', 'jnRm');
-            eventEmitter(socket, 'betError', { message: 'Player already exist in another room' });
+            eventEmitter(socket, 'bet_error', { message: 'Player already exist in another room' });
             return;
         };
 
@@ -39,13 +48,19 @@ export const joinRoomHandler = async (io: IOServer, socket: Socket, roomId: stri
         socket.join(roomId);
         await setCache(`rm-${operatorId}:${user_id}`, roomId);
         eventEmitter(socket, 'jnRm', { message: 'Room joined successfully', roomId });
-        eventEmitter(socket, 'rmSts', {
-            // what are the things you want emit
+        emitInitialCards();
+        // const historyFromDb = await getRoomwiseHistory(Number(roomId));
+        const cardHistory = /*historyFromDb && historyFromDb.length > 0 ? historyFromDb : */cards;
+
+        eventEmitter(socket, "rmSts", {
+           //history: historyFromDb,
+            cardHistory: cardHistory,
+           // players: roomPlayerCount[Number(roomId)] || 0,
         });
         return;
     } catch (err) {
         logEventAndEmitResponse({ roomId }, 'Something went wrong, unable to join room', 'jnRm');
-        eventEmitter(socket, 'betError', { message: 'Something went wrong, unable to join room' });
+        eventEmitter(socket, 'bet_error', { message: 'Something went wrong, unable to join room' });
         socket.disconnect(true);
         return;
   }
@@ -57,7 +72,7 @@ export const exitRoomHandler = async (io: IOServer, socket: Socket, roomId: stri
         const stringifiedPlayerDetails = await getCache(`PL:${socket.id}`);
         if (!stringifiedPlayerDetails) {
             logEventAndEmitResponse({ roomId }, 'Player details not found', 'exRm');
-            eventEmitter(socket, 'betError', { message: 'Player details not found' });
+            eventEmitter(socket, 'bet_error', { message: 'Player details not found' });
             return;
         };
         const playerDetails: FinalUserData = JSON.parse(stringifiedPlayerDetails);
@@ -65,25 +80,27 @@ export const exitRoomHandler = async (io: IOServer, socket: Socket, roomId: stri
         const isPlayerExistInRoom = await getCache(`rm-${operatorId}:${user_id}`);
         if (!isPlayerExistInRoom) {
             logEventAndEmitResponse({ roomId, ...playerDetails }, 'Player does not belong to room', 'exRm');
-            eventEmitter(socket, 'betError', { message: 'Player does not belong to room' });
+            eventEmitter(socket, 'bet_error', { message: 'Player does not belong to room' });
             return;
         };
         socket.leave(roomId);
         if (roomPlayerCount[Number(roomId)]) roomPlayerCount[Number(roomId)]--
         io.emit('message', { eventName: 'plCnt', data: roomPlayerCount });
         await deleteCache(`rm-${operatorId}:${user_id}`);
+        // delete cache of previos satlement
+        await deleteCache(`CA:`)
         eventEmitter(socket, 'lvRm', { message: 'Room left successfully', roomId });
         return;
     } catch (err) {
         logEventAndEmitResponse({ roomId }, 'Something went wrong, unable to leave room', 'exRm');
-        eventEmitter(socket, 'betError', { message: 'Something went wrong, unable to leave room' });
+        eventEmitter(socket, 'bet_error', { message: 'Something went wrong, unable to leave room' });
         socket.disconnect(true);
         return;
     }
 };
 
 const roomConfigs: Record<number, number[]> = {
-  101: [1, 2, 3, 4, 5, 6],
+  101: [10, 20, 30, 40, 50, 100],
   102: [3, 4, 5, 6, 8, 9],
   103: [5, 6, 8, 9, 10, 11],
   104: [10, 11, 12, 14, 15, 16],
@@ -113,18 +130,12 @@ const validateBet = (btAmt: number, roomId: number, balance: number, socket: Soc
   return true;
 };
 
-const cards:any[] = [];
-export function emitInitialCards() {
-  const count = 8
-  for (let i = 0; i < count; i++) {
-    const card = drawCard();
-    cards.push(card);
-  }
 
-}
 
 export const placeBet = async (socket: Socket, betData: BetReqData) => {
   try {
+    emitInitialCards();
+    console.log(cards);
     const playerDetailsStr = await getCache(`PL:${socket.id}`);
     if (!playerDetailsStr) {
       socket.emit("bet_error", "Player details not found")
@@ -161,48 +172,60 @@ export const placeBet = async (socket: Socket, betData: BetReqData) => {
       balance: parsedPlayerDetails.balance
     });
 
-    const card = drawCard()
-
-    cards.push(card)
+    const card = drawCard();
+    cards.push(card);
 
     socket.emit("cards_history", {
       cards,
-      cards_count: cards.length,
-    });
-    let bank = 0
-    let win_count = 0
-    const lastestCard = cards[-1]
-    const secondLatestCard = cards[-2]
-
-    const { status, mult } = await calculateWinnings(category, lastestCard, secondLatestCard)
-    bank += mult
-    socket.emit("cards_history", {
-      cards,
-      cards_count: cards.length,
+      cards_count: cards.length
     });
 
+    const latestCard = cards[cards.length - 1];
+    const secondLatestCard = cards[cards.length - 2];
 
-    if(status == "win"){
-      win_count++
-      socket.emit("result",{
-        cashout:bank,
-        win_count : win_count
-      }
-      )
+    const { status, mult } = await calculateWinnings(category, latestCard, secondLatestCard);
+
+    const prevCache = await getCache(`CA:${user_id}`);
+    let bank = 0, win_count = 0;
+
+    if (prevCache) {
+      const prevData = JSON.parse(prevCache);
+      bank += prevData.bank || 0;
+      win_count += prevData.win_count || 0;
     }
 
+    if (status === "win") {
+      bank += mult;
+      win_count++;
+      console.log(JSON.stringify({ bank, win_count, socketId: socket.id }));
+      await setCache(`CA:${user_id}`, JSON.stringify({ bank, win_count, socketId: socket.id }));
+      socket.emit("result", { cashout: bank, win_count });
 
-
-    
-
-
-
+      if (win_count >= 10) {
+        return await settleAndReset(socket, user_id, operatorId, game_id, bank);
+      }
+    } else {
+      await deleteCache(`CA:${user_id}`);
+      socket.emit("result", { cashout: 0, win_count: 0, status: "loss" });
+      await settleBet(user_id, operatorId, game_id, 0);
+    }
     return;
   } catch (err) {
-    // erroredLogger.error(betData, 'Bet cannot be placed', err);
-    socket.emit('bet_error', 'Bet cannot be placed');
-    return;
+    console.error("Error in placeBet:", err);
+    socket.emit("bet_error", "Unexpected error occurred");
   }
+};
+
+const settleAndReset = async (socket: Socket, user_id: string, operatorId: string, game_id: string, amount: number = 0) => {
+  await settleBet(user_id, operatorId, game_id, amount);
+  await deleteCache(`CA:${user_id}`);
+  socket.emit("settle", { user_id, amount });
+};
+
+const settleBet = async (user_id: string, operatorId: string, game_id: string, amount: number) => {
+  // call credit API or DB entry
+  console.log(`Settling bet for ${user_id} with amount: ${amount}`);
+  // your credit/DB logic here
 };
 
 export const disConnect = async (io: Server, socket: Socket) => {
@@ -224,7 +247,7 @@ export const disConnect = async (io: Server, socket: Socket) => {
     socket.disconnect(true);
   } catch (err) {
     logger.error('disconnect error');
-    socket.emit('betError', { message: 'Unable to disconnect cleanly' });
+    socket.emit('bet_error', { message: 'Unable to disconnect cleanly' });
   }
 };
 
@@ -233,22 +256,62 @@ export const roomStats = async (io: Server, socket: Socket) => {
     try {
         const stringifiedPlayerDetails = await getCache(`PL:${socket.id}`);
         if (!stringifiedPlayerDetails) {
-            eventEmitter(socket, 'betError', { message: 'Invalid Player details' });
+            eventEmitter(socket, 'bet_error', { message: 'Invalid Player details' });
             return;
         };
         const playerDetails = JSON.parse(stringifiedPlayerDetails);
         const { user_id, operatorId } = playerDetails;
         const existingRoom = await getCache(`rm-${operatorId}:${user_id}`);
         if (!existingRoom) {
-            eventEmitter(socket, 'betError', { message: 'user deos not exist in any room' });
+            eventEmitter(socket, 'bet_error', { message: 'user deos not exist in any room' });
             return;
         };
-        eventEmitter(socket, 'rmSts', {
-            //what you want to emit like history card , card probability
+        console.log(existingRoom);
+        const historyFromDb = await getRoomwiseHistory(Number(existingRoom));
+        const cardHistory = historyFromDb && historyFromDb.length > 0 
+            ? historyFromDb 
+            :  emitInitialCards();
+
+        eventEmitter(socket, "rmSts", {
+            history: historyFromDb,
+            cardHistory: cardHistory,
+            players: roomPlayerCount[Number(existingRoom)] || 0,
         });
         return;
     } catch (err) {
-        eventEmitter(socket, 'betError', { message: 'Something went wrong, unable to fetch room stats' });
+        eventEmitter(socket, 'bet_error', { message: 'Something went wrong, unable to fetch room stats' });
         return;
     }
 }
+
+
+export const getRoomwiseHistory = async (roomId: number) => {
+    try {
+        const historyData = await read(
+            `SELECT cards FROM settlement WHERE roomId = ${roomId} ORDER BY created_at DESC LIMIT 8`
+        );
+        return historyData;
+    } catch (err) {
+        console.error(`Err while getting Rooms history data is:::`, err);
+        return null;
+    }
+};
+
+
+export const getMatchHistory = async (
+    socket: Socket,
+    userId: string,
+    operator_id: string
+) => {
+    try {
+        const historyData = await read(
+            `SELECT * FROM settlement ORDER BY created_at DESC LIMIT 10`
+        );
+        return socket.emit("historyData", historyData);
+    } catch (err) {
+        console.error(`Err while getting user history data is:::`, err);
+        return;
+    }
+};
+
+

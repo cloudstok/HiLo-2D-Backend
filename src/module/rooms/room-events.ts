@@ -4,8 +4,8 @@ import { createLogger } from "../../utils/logger";
 const logger = createLogger("Card_Hi_lo_2D", "jsonl");
 
 export const ROOMS = [
-  { room_id: 101, room_name: "Regular", min_bet: 10, max_bet: 100 },
-  { room_id: 102, room_name: "Friendly", min_bet: 50, max_bet: 500 },
+  { room_id: 101, room_name: "Friendly", min_bet: 10, max_bet: 100 },
+  { room_id: 102, room_name: "Casual", min_bet: 50, max_bet: 500 },
   { room_id: 103, room_name: "Expert", min_bet: 100, max_bet: 1000 },
   { room_id: 104, room_name: "High Roller", min_bet: 500, max_bet: 5000 },
 ];
@@ -28,8 +28,15 @@ export const roomWiseHistory: {
 };
 
 
-export const initGame = (io: IOServer) => {
-  logger.info("Game opened. Initializing rooms...");
+export const sendGameOpen = (socket: Socket) => {
+  socket.emit("game_open", {
+    rooms: ROOMS,
+    players: roomPlayerCount,
+  });
+};
+
+
+export const broadcastGameOpen = (io: IOServer) => {
   io.emit("game_open", {
     rooms: ROOMS,
     players: roomPlayerCount,
