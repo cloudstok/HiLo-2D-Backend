@@ -39,9 +39,14 @@ export interface BetReqData {
     category: string;
 };
 
+export interface cashOutReqData {
+    roomId: number;
+    userId: string;
+};
+
 export interface UserBet {
     betAmount: number;
-    card: number;
+    category: string;
 }
 
 export interface PlayerDetails {
@@ -51,15 +56,14 @@ export interface PlayerDetails {
 };
 
 export interface Settlement {
-    Settlement_id: number;
+    Settlement_id: string;
     user_id: string;
     operator_id: string;
     betAmount: number;
-    userBets: UserBet[];
+    userBets: UserBet;
     roomId: number;
-    result: string;
+    status: string;
     winAmount: number;
-    winning_card: number;
     txn_id?: string;
 }
 

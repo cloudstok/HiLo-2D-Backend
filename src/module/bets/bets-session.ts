@@ -3,17 +3,18 @@ import { appConfig } from '../../utils/app-config';
 import { setCache, getCache, deleteCache } from '../../utils/redis-connection';
 import { getUserIP, getRooms as getRoomTemplates } from '../../utils/helper-function';
 import { createLogger } from '../../utils/logger';
-import { BetResult, BetsData, Settlement, AccountsResult, BetReqData, BetsObject, FinalUserData, BetObject } from '../../interfaces';
+import { BetResult, BetsData, Settlement, AccountsResult, BetReqData, BetsObject, FinalUserData, BetObject, cashOutReqData } from '../../interfaces';
 import { read, write } from '../../utils/db-connection';
 import { Server as IOServer, Server, Socket } from 'socket.io';
 import { addSettleBet } from './bets-db';
 import { roomPlayerCount, roomWiseHistory } from '../rooms/room-events';
 import { logEventAndEmitResponse, eventEmitter } from '../../utils/helper-function';
-import { calculateWinnings, drawCard } from '../games/game';
+import { calculateWinnings, drawCard , betTypeMap} from '../games/game';
 
 const logger = createLogger('Bets', 'jsonl');
 const settlBetLogger = createLogger('Settlement', 'jsonl');
 const erroredLogger = createLogger('ErrorData', 'plain');
+const cashoutLogger = createLogger("cashOut", "jsonl");
 
 const cards:any[] = [];
 export function emitInitialCards() {
@@ -39,9 +40,7 @@ export const joinRoomHandler = async (io: IOServer, socket: Socket, roomId: stri
         const isPlayerExistInRoom = await getCache(`rm-${operatorId}:${user_id}`);
 
         if (isPlayerExistInRoom) {
-            logEventAndEmitResponse({ roomId, ...playerDetails }, 'Player already exist in another room', 'jnRm');
-            eventEmitter(socket, 'bet_error', { message: 'Player already exist in another room' });
-            return;
+            exitRoomHandler(io, socket, isPlayerExistInRoom);
         };
 
         if (roomPlayerCount[Number(roomId)]) roomPlayerCount[Number(roomId)]++;
@@ -84,11 +83,9 @@ export const exitRoomHandler = async (io: IOServer, socket: Socket, roomId: stri
             return;
         };
         socket.leave(roomId);
-        if (roomPlayerCount[Number(roomId)]) roomPlayerCount[Number(roomId)]--
-        io.emit('message', { eventName: 'plCnt', data: roomPlayerCount });
         await deleteCache(`rm-${operatorId}:${user_id}`);
         // delete cache of previos satlement
-        await deleteCache(`CA:`)
+        await deleteCache(`CA:${user_id}`)
         eventEmitter(socket, 'lvRm', { message: 'Room left successfully', roomId });
         return;
     } catch (err) {
@@ -100,7 +97,7 @@ export const exitRoomHandler = async (io: IOServer, socket: Socket, roomId: stri
 };
 
 const roomConfigs: Record<number, number[]> = {
-  101: [10, 20, 30, 40, 50, 100],
+  101: [1, 2, 3, 4, 5, 6],
   102: [3, 4, 5, 6, 8, 9],
   103: [5, 6, 8, 9, 10, 11],
   104: [10, 11, 12, 14, 15, 16],
@@ -197,17 +194,11 @@ export const placeBet = async (socket: Socket, betData: BetReqData) => {
     if (status === "win") {
       bank += mult;
       win_count++;
-      console.log(JSON.stringify({ bank, win_count, socketId: socket.id }));
-      await setCache(`CA:${user_id}`, JSON.stringify({ bank, win_count, socketId: socket.id }));
-      socket.emit("result", { cashout: bank, win_count });
-
-      if (win_count >= 10) {
-        return await settleAndReset(socket, user_id, operatorId, game_id, bank);
-      }
+      await setCache(`CA:${user_id}`, JSON.stringify({ bank, win_count, btAmt, category,status, socketId: socket.id }));
+      socket.emit("result", { cashout: bank, win_count , btAmt, latestCard, category, status: "win" });
     } else {
       await deleteCache(`CA:${user_id}`);
-      socket.emit("result", { cashout: 0, win_count: 0, status: "loss" });
-      await settleBet(user_id, operatorId, game_id, 0);
+      socket.emit("result", { cashout: 0, win_count: 0, latestCard, category, status: "loss" });
     }
     return;
   } catch (err) {
@@ -216,17 +207,89 @@ export const placeBet = async (socket: Socket, betData: BetReqData) => {
   }
 };
 
-const settleAndReset = async (socket: Socket, user_id: string, operatorId: string, game_id: string, amount: number = 0) => {
-  await settleBet(user_id, operatorId, game_id, amount);
-  await deleteCache(`CA:${user_id}`);
-  socket.emit("settle", { user_id, amount });
+
+
+export const cashOut = async (socket: Socket, cashData: cashOutReqData) => {
+  try {
+    const playerDetailsStr = await getCache(`PL:${socket.id}`);
+    if (!playerDetailsStr) {
+      socket.emit("bet_error", "Player details not found");
+      return;
+    }
+
+    const playerDetails: FinalUserData = JSON.parse(playerDetailsStr);
+    const { user_id, operatorId, token, game_id } = playerDetails;
+    const prevCache = await getCache(`CA:${user_id}`);
+    if (!prevCache) {
+      socket.emit("bet_error", "No winnings available for cashout");
+      return;
+    }
+    const { bank, win_count, btAmt, category, status } = JSON.parse(prevCache);
+    if (!bank || bank <= 0) {
+      socket.emit("bet_error", "No valid winnings to cashout");
+      return;
+    }
+  
+    const userbets = { betAmount: btAmt, category: category };
+
+    const settlement: Settlement = {
+      Settlement_id: generateUUIDv7() + "-" + cashData.roomId,
+      user_id,
+      operator_id: operatorId,
+      betAmount: btAmt,
+      userBets: userbets,
+      roomId: cashData.roomId,
+      status: status,
+      winAmount: bank,
+    };
+
+    await addSettleBet(settlement);
+
+    // Credit the winnings
+    const creditRes: AccountsResult = await updateBalanceFromAccount(
+      {
+        id: settlement.Settlement_id,
+        bet_amount: settlement.winAmount,
+        game_id,
+        ip: getUserIP(socket),
+        user_id,
+      },
+      "CREDIT",
+      { game_id, operatorId, token }
+    );
+
+    if (!creditRes.status) {
+      socket.emit("bet_error", "Unable to credit winnings, please retry");
+      return;
+    }
+
+    await deleteCache(`CA:${user_id}`);
+
+    playerDetails.balance += settlement.winAmount;
+    await setCache(`PL:${socket.id}`, JSON.stringify(playerDetails));
+
+    const winData = {
+      winAmount: settlement.winAmount,
+      win_count,
+      balance: playerDetails.balance,
+      txn_id: creditRes.txn_id,
+    };
+
+    cashoutLogger.info(
+      JSON.stringify({
+        socketId: socket.id,
+        user_id : user_id,
+        playerDetails,
+        winData,
+      })
+    );
+
+    socket.emit("cash_out_complete", winData);
+  } catch (err) {
+    socket.emit("bet_error", "Something went wrong during cashout");
+  }
 };
 
-const settleBet = async (user_id: string, operatorId: string, game_id: string, amount: number) => {
-  // call credit API or DB entry
-  console.log(`Settling bet for ${user_id} with amount: ${amount}`);
-  // your credit/DB logic here
-};
 
 export const disConnect = async (io: Server, socket: Socket) => {
   try {
