@@ -28,7 +28,6 @@ export function emitInitialCards() {
 export const joinRoomHandler = async (io: IOServer, socket: Socket, roomId: string) => {
   try {
         const stringifiedPlayerDetails = await getCache(`PL:${socket.id}`);
-
         if (!stringifiedPlayerDetails) {
             logEventAndEmitResponse({ roomId }, 'Player details not found', 'jnRm');
             eventEmitter(socket, 'bet_error', { message: 'Player details not found' });
@@ -97,10 +96,10 @@ export const exitRoomHandler = async (io: IOServer, socket: Socket, roomId: stri
 };
 
 const roomConfigs: Record<number, number[]> = {
-  101: [1, 2, 3, 4, 5, 6],
-  102: [3, 4, 5, 6, 8, 9],
-  103: [5, 6, 8, 9, 10, 11],
-  104: [10, 11, 12, 14, 15, 16],
+  101: [10, 20, 30, 40, 50, 60],
+  102: [30, 40, 50, 60, 80, 90],
+  103: [50, 60, 80, 90, 100, 110],
+  104: [100, 110, 120, 140, 150, 160],
 };
 
 const validateBet = (btAmt: number, roomId: number, balance: number, socket: Socket): boolean => {
@@ -131,8 +130,7 @@ const validateBet = (btAmt: number, roomId: number, balance: number, socket: Soc
 
 export const placeBet = async (socket: Socket, betData: BetReqData) => {
   try {
-    emitInitialCards();
-    console.log(cards);
+    //emitInitialCards();
     const playerDetailsStr = await getCache(`PL:${socket.id}`);
     if (!playerDetailsStr) {
       socket.emit("bet_error", "Player details not found")
@@ -141,7 +139,7 @@ export const placeBet = async (socket: Socket, betData: BetReqData) => {
 
     const parsedPlayerDetails = JSON.parse(playerDetailsStr);
     const { user_id, operatorId, token, game_id, balance } = parsedPlayerDetails;
-    const { roomId, btAmt, category } = betData;
+    const { roomId, btAmt, category } = betData
 
     if (!validateBet(btAmt, roomId, balance, socket)) return;
 
@@ -166,7 +164,7 @@ export const placeBet = async (socket: Socket, betData: BetReqData) => {
     socket.emit('info', {
       user_id,
       operator_id: operatorId,
-      balance: parsedPlayerDetails.balance
+      balance: parsedPlayerDetails.balance.toFixed(2)|| "0.00"
     });
 
     const card = drawCard();
@@ -194,7 +192,7 @@ export const placeBet = async (socket: Socket, betData: BetReqData) => {
     if (status === "win") {
       bank += mult;
       win_count++;
-      await setCache(`CA:${user_id}`, JSON.stringify({ bank, win_count, btAmt, category,status, socketId: socket.id }));
+      await setCache(`CA:${user_id}`, JSON.stringify({ bank, win_count, btAmt, category,status, socketId: socket.id, roomId }));
       socket.emit("result", { cashout: bank, win_count , btAmt, latestCard, category, status: "win" });
     } else {
       await deleteCache(`CA:${user_id}`);
@@ -207,49 +205,59 @@ export const placeBet = async (socket: Socket, betData: BetReqData) => {
   }
 };
 
+export const nextBet = async (socket: Socket, betData: BetReqData) => {
+  try {
+    
+
+  } catch (err) {
+    console.error("Error in nextBet:", err);
+    socket.emit("bet_error", "Unexpected error occurred in next bet");
+  }
+};
 
 
-export const cashOut = async (socket: Socket, cashData: cashOutReqData) => {
+
+
+export const cashOut = async (socket: Socket, cashData: cashOutReqData)=> {
   try {
     const playerDetailsStr = await getCache(`PL:${socket.id}`);
     if (!playerDetailsStr) {
-      socket.emit("bet_error", "Player details not found");
-      return;
+      return socket.emit("bet_error", "Player details not found");
     }
-
     const playerDetails: FinalUserData = JSON.parse(playerDetailsStr);
-    const { user_id, operatorId, token, game_id, balance } = playerDetails;
+    const { user_id, operatorId, token, game_id } = playerDetails;
+
     const prevCache = await getCache(`CA:${user_id}`);
     if (!prevCache) {
-      socket.emit("bet_error", "No winnings available for cashout");
-      return;
+      return socket.emit("bet_error", "No winnings available for cashout");
     }
-    const { bank, win_count, btAmt, category, status } = JSON.parse(prevCache);
+    const { bank, win_count, btAmt, category, status, roomId } = JSON.parse(prevCache);
+    console.log("Cashout Data:", { bank, win_count, btAmt, category, status, roomId });
     if (!bank || bank <= 0) {
-      socket.emit("bet_error", "No valid winnings to cashout");
-      return;
+      return socket.emit("bet_error", "No valid winnings to cashout");
     }
-  
-    const userbets = { betAmount: btAmt, category: category };
 
     const settlement: Settlement = {
-      Settlement_id: generateUUIDv7() + "-" + cashData.roomId,
+      Settlement_id: `${generateUUIDv7()}-${cashData.roomId}`,
       user_id,
       operator_id: operatorId,
       betAmount: btAmt,
-      userBets: userbets,
-      roomId: cashData.roomId,
-      status: status,
+      userBets: { betAmount: btAmt, category },
+      roomId: roomId,
+      status,
       winAmount: bank,
     };
 
     await addSettleBet(settlement);
 
-    // Credit the winnings
+    const winAmount = Number(
+      Math.min(settlement.winAmount, appConfig.maxCashoutAmount).toFixed(2)
+    );
+
     const creditRes: AccountsResult = await updateBalanceFromAccount(
       {
         id: settlement.Settlement_id,
-        bet_amount: settlement.winAmount,
+        winning_amount: winAmount,
         game_id,
         ip: getUserIP(socket),
         user_id,
@@ -259,12 +267,10 @@ export const cashOut = async (socket: Socket, cashData: cashOutReqData) => {
     );
 
     if (!creditRes.status) {
-      socket.emit("bet_error", "Unable to credit winnings, please retry");
-      return;
+      return socket.emit("bet_error", "Unable to credit winnings, please retry");
     }
 
     await deleteCache(`CA:${user_id}`);
-
     playerDetails.balance += settlement.winAmount;
     await setCache(`PL:${socket.id}`, JSON.stringify(playerDetails));
 
@@ -274,14 +280,16 @@ export const cashOut = async (socket: Socket, cashData: cashOutReqData) => {
       balance: playerDetails.balance,
     };
 
-    socket.emit('info', {
+    socket.emit("info", {
       user_id,
       operator_id: operatorId,
-      balance: playerDetails.balance
+      balance: Number(playerDetails.balance).toFixed(2) || "0.00",
     });
 
     socket.emit("cash_out_complete", winData);
+
   } catch (err) {
+    console.error("Cashout error:", err);
     socket.emit("bet_error", "Something went wrong during cashout");
   }
 };
