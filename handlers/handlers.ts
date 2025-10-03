@@ -5,6 +5,12 @@ import { betChecker, generateDeck, probMultCalculator, resetGameState, shuffleDe
 import { updateBalanceFromAccount } from "../utilities/v2Transactions";
 import { ROOM_CONFIG } from "../constants/constant";
 import { Settlements } from "../models/settlements";
+import { Bets } from "../models/betResults";
+import { createLogger } from "../utilities/logger";
+
+const startGameLogger = createLogger("StartGame", "jsonl")
+const pickCardLogger = createLogger("PickCard", "jsonl")
+const cashoutLogger = createLogger("Cashout", "jsonl")
 
 export const joinRoom = async (socket: Socket, rmId: string[]) => {
     try {
@@ -61,7 +67,17 @@ export const startGame = async (socket: Socket, payload: string[]) => {
         gameData.txn_id = txnDbt.txn_id;
         gameData.bet_amount = Number(betAmt);
 
+        let dbObj = {
+            lobby_id: gameData.lobby_id,
+            room_id: gameData.room_id,
+            user_id: info.urId,
+            operator_id: info.operatorId,
+            bet_amount: gameData.bet_amount,
+            cards_history: gameData.cardsHistory
+        }
+        startGameLogger.info(dbObj)
         await setCache(`GM:${info.urId}:${info.operatorId}`, gameData);
+        await Bets.create(dbObj);
 
         return await pickCard(socket, [atn]);
     } catch (error: any) {
@@ -89,8 +105,8 @@ export const pickCard = async (socket: Socket, betData: string[]) => {
         const cmprCd = gameData.cardsHistory[gameData.cardsHistory.length - 1];
 
         const { chose, mult, win } = betChecker(gameData.mults, pkdCd, cmprCd, plAtn as BetAction)
-
-        const cardToPushInDeck = gameData.cardsHistory.shift();
+        const cards = [...gameData.cardsHistory];
+        const cardToPushInDeck = cards.reverse()[7];
         gameData.cardsHistory.push(pkdCd);
         gameData.deck.push(cardToPushInDeck as string);
         gameData.category = plAtn;
@@ -104,15 +120,32 @@ export const pickCard = async (socket: Socket, betData: string[]) => {
         if (!win) {
             socket.emit("pickCardResult", { message: "you loss", mult, chose, win, pickedCard: pkdCd, previousCard: cmprCd });
             socket.emit("gameData", { ...gameData, deck: [] });
+            let dbObj = {
+                lobby_id: gameData.lobby_id,
+                room_id: gameData.room_id,
+                user_id: info.urId,
+                operator_id: info.operatorId,
+                final_mult: 0,
+                bet_amount: gameData.bet_amount,
+                win_amount: 0,
+                plr_action: gameData.category as BetAction,
+                picked_card: gameData.cardsHistory[gameData.cardsHistory.length - 1],
+                previous_card: gameData.cardsHistory[gameData.cardsHistory.length - 2],
+                cards_history: gameData.cardsHistory,
+                revealed_count: gameData.revealedCount,
+                status: "LOSS",
+            }
+            pickCardLogger.info(dbObj)
+            // @ts-ignore
+            await Settlements.create(dbObj);
             gameData = resetGameState(info, gameData.room_id as TRoomId, 0, gameData.cardsHistory, gameData.deck);
         }
         await setCache(gameDataKey, gameData);
-
+        pickCardLogger.info({ ...gameData, deck: [] });
         if (win) socket.emit("pickCardResult", { message: "card picked successfully", mult, chose, win });
         setTimeout(() => {
             socket.emit("gameData", { ...gameData, deck: [] });
         }, 1000);
-
 
         return;
 
@@ -156,31 +189,24 @@ export const cashoutHandler = async (socket: Socket) => {
         socket.emit("info", info);
         socket.emit("cashout", "Cashout done successfully, cashout amount:" + payout.toFixed(2));
 
-        await Settlements.create({
+        const dbObj = {
+            lobby_id: gameData.lobby_id,
+            room_id: gameData.room_id,
             user_id: info.urId,
-            round_id: gameData.txn_id,  // using txn_id as round identifier
             operator_id: info.operatorId,
-            bet_amt: Number(gameData.bet_amount.toFixed(2)),
-            win_amt: Number(payout.toFixed(2)),
-
-            // settlement details
-            settled_bets: {
-                payout,
-                mult_bank: gameData.mult_bank,
-                category: gameData.category,
-                room_id: gameData.room_id,
-            },
-
-            // final round result (cards + status + revealed count)
-            round_result: {
-                cardsHistory: gameData.cardsHistory,
-                revealedCount: gameData.revealedCount,
-                status: gameData.status,
-                deck: gameData.deck.length, // just store count, not full deck for DB optimization
-            },
-
-            status: payout > 0 ? "WIN" : "LOSS",
-        });
+            final_mult: gameData.mult_bank,
+            bet_amount: gameData.bet_amount,
+            win_amount: gameData.mult_bank * gameData.bet_amount,
+            plr_action: gameData.category as BetAction,
+            picked_card: gameData.cardsHistory[gameData.cardsHistory.length - 1],
+            previous_card: gameData.cardsHistory[gameData.cardsHistory.length - 2],
+            cards_history: gameData.cardsHistory,
+            revealed_count: gameData.revealedCount,
+            status: gameData.mult_bank > 1 ? "WIN" : "LOSS",
+        }
+        cashoutLogger.info(dbObj)
+        // @ts-ignore
+        await Settlements.create(dbObj);
 
 
         const shuffledDeck = shuffleDeck(generateDeck());
@@ -206,7 +232,6 @@ export const leaveRoom = async (socket: Socket,) => {
             await cashoutHandler(socket);
         }
         await delCache(gameDataKey);
-
         socket.emit("leave", "room left successfully")
         return
     } catch (error: any) {
